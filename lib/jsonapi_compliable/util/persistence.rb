@@ -5,11 +5,14 @@ class JsonapiCompliable::Util::Persistence
   # @param [Hash] meta see (Deserializer#meta)
   # @param [Hash] attributes see (Deserializer#attributes)
   # @param [Hash] relationships see (Deserializer#relationships)
-  def initialize(resource, meta, attributes, relationships)
+  # @param [Hash] relationships see (Deserializer#relationships)
+  # @param parent_object : nil [Class] optional parent object for the nested relationship
+  def initialize(resource, meta, attributes, relationships, parent_object: nil)
     @resource      = resource
     @meta          = meta
     @attributes    = attributes
     @relationships = relationships
+    @parent_object = parent_object
   end
 
   # Perform the actual save logic.
@@ -38,7 +41,11 @@ class JsonapiCompliable::Util::Persistence
     associate_parents(persisted, parents)
 
     children = process_has_many(@relationships) do |x|
-      update_foreign_key(persisted, x[:attributes], x)
+      if x[:sideload].type.in?([:embeds_many, :embeds_one])
+        x[:parent_object] = persisted
+      else
+        update_foreign_key(persisted, x[:attributes], x)
+      end
     end
 
     associate_children(persisted, children)
@@ -53,6 +60,9 @@ class JsonapiCompliable::Util::Persistence
     if [:destroy, :disassociate].include?(x[:meta][:method])
       attrs[x[:foreign_key]] = nil
       update_foreign_type(attrs, x, null: true) if x[:is_polymorphic]
+    elsif x[:sideload].type == :habtm
+      (attrs[x[:foreign_key]] ||= []) << parent_object.send(x[:primary_key]).to_s
+      update_foreign_type(attrs, x) if x[:is_polymorphic]
     else
       attrs[x[:foreign_key]] = parent_object.send(x[:primary_key])
       update_foreign_type(attrs, x) if x[:is_polymorphic]
@@ -83,6 +93,9 @@ class JsonapiCompliable::Util::Persistence
   end
 
   def persist_object(method, attributes)
+    if parent_object.present?
+      return persist_embedded_object(method, attributes, parent_object)
+    end
     case method
       when :destroy
         @resource.destroy(attributes[:id])
@@ -93,12 +106,30 @@ class JsonapiCompliable::Util::Persistence
     end
   end
 
+  # Forwards persistence arguments for nested relations
+  # @param method [Symbol]
+  # @param attributes [ActionController::Parameter]
+  # @param parent_object [Class]
+  #
+  # @return [void]
+  def persist_embedded_object(method, attributes, parent_object)
+    case method
+    when :destroy
+      @resource.destroy(attributes[:id], parent_object)
+    when :disassociate, nil
+      @resource.update(attributes, parent_object)
+    else
+      @resource.send(method, attributes, parent_object)
+    end
+  end
+
   def process_has_many(relationships)
     [].tap do |processed|
       iterate(except: [:polymorphic_belongs_to, :belongs_to]) do |x|
         yield x
         x[:object] = x[:sideload].resource
-          .persist_with_relationships(x[:meta], x[:attributes], x[:relationships])
+          .persist_with_relationships(x[:meta], x[:attributes], x[:relationships],
+            parent_object: x[:parent_object])
         processed << x
       end
     end

@@ -116,6 +116,10 @@ module JsonapiCompliable
       # @!method polymorphic_has_many
       #   @see Adapters::ActiveRecordSideloading#polymorphic_has_many
       def_delegator :sideloading, :polymorphic_has_many
+      #   @see Adapters::MongoidSideloading#embeds_one
+      def_delegator :sideloading, :embeds_one
+      #   @see Adapters::MongoidSideloading#embeds_many
+      def_delegator :sideloading, :embeds_many
     end
 
     # @!method sideload
@@ -544,9 +548,9 @@ module JsonapiCompliable
     end
 
     # @api private
-    def persist_with_relationships(meta, attributes, relationships)
+    def persist_with_relationships(meta, attributes, relationships, parent_object: nil)
       persistence = JsonapiCompliable::Util::Persistence \
-        .new(self, meta, attributes, relationships)
+        .new(self, meta, attributes, relationships, parent_object: parent_object)
       persistence.run
     end
 
