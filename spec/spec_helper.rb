@@ -18,6 +18,7 @@ require 'pry'
 require 'jsonapi_compliable'
 require 'jsonapi_compliable/adapters/null'
 require 'jsonapi_compliable/adapters/active_record'
+require 'jsonapi_compliable/adapters/mongoid'
 
 RSpec.configure do |config|
   config.before(:suite) do
