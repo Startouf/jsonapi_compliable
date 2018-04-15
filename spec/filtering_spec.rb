@@ -13,6 +13,10 @@ RSpec.describe 'filtering' do
       allow_filter :first_name_prefix do |scope, value|
         scope.where(['first_name like ?', "#{value}%"])
       end
+      allow_filter :active
+      allow_filter :temp do |scope, value, ctx|
+        scope.where(id: ctx.runtime_id)
+      end
     end
   end
 
@@ -24,6 +28,63 @@ RSpec.describe 'filtering' do
   it 'scopes correctly' do
     params[:filter] = { id: author1.id }
     expect(scope.resolve.map(&:id)).to eq([author1.id])
+  end
+
+  # For example, getting current user from controller
+  it 'has access to calling context' do
+    ctx = double(runtime_id: author3.id).as_null_object
+    JsonapiCompliable.with_context(ctx, {}) do
+      params[:filter] = { temp: true }
+      expect(scope.resolve.map(&:id)).to eq([author3.id])
+    end
+  end
+
+  context 'when filter is a "string nil"' do
+    before do
+      params[:filter] = { first_name: 'nil' }
+      author2.update_attribute(:first_name, nil)
+    end
+
+    it 'converts to a real nil' do
+      ids = scope.resolve.map(&:id)
+      expect(ids).to eq([author2.id])
+    end
+  end
+
+  context 'when filter is a "string null"' do
+    before do
+      params[:filter] = { first_name: 'null' }
+      author2.update_attribute(:first_name, nil)
+    end
+
+    it 'converts to a real nil' do
+      ids = scope.resolve.map(&:id)
+      expect(ids).to eq([author2.id])
+    end
+  end
+
+  context 'when filter is a "string boolean"' do
+    before do
+      params[:filter] = { active: 'true' }
+      author2.update_attribute(:active, false)
+    end
+
+    it 'automatically casts to a real boolean' do
+      ids = scope.resolve.map(&:id)
+      expect(ids.length).to eq(3)
+      expect(ids).to_not include(author2.id)
+    end
+
+    context 'and multiple are passed' do
+      before do
+        params[:filter] = { active: 'true,false' }
+      end
+
+      it 'still works' do
+        ids = scope.resolve.map(&:id)
+        expect(ids.length).to eq(4)
+      end
+    end
   end
 
   context 'when filter is an integer' do
@@ -88,11 +149,28 @@ RSpec.describe 'filtering' do
       params[:filter] = { name: 'Stephen' }
       expect(scope.resolve.map(&:id)).to eq([author1.id])
     end
+
+    context 'when accessing calling context' do
+      before do
+        resource_class.class_eval do
+          default_filter :first_name do |scope, ctx|
+            scope.where(id: ctx.runtime_id)
+          end
+        end
+      end
+
+      it 'works' do
+        ctx = double(runtime_id: author3.id).as_null_object
+        JsonapiCompliable.with_context(ctx, {}) do
+          expect(scope.resolve.map(&:id)).to eq([author3.id])
+        end
+      end
+    end
   end
 
   context 'when the filter is guarded' do
     let(:can_filter) { true }
-    let(:ctx) { double(can_filter_first_name?: can_filter) }
+    let(:ctx) { double(can_filter_first_name?: can_filter).as_null_object }
 
     before do
       params[:filter] = { first_name_guarded: 'Stephen' }

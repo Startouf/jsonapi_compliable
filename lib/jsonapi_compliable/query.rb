@@ -49,12 +49,15 @@ module JsonapiCompliable
     # @return [Hash] the scrubbed include directive as a hash
     def include_hash
       @include_hash ||= begin
-        requested     = include_directive.to_hash
-        all_allowed   = resource.sideloading.to_hash[:base]
-        whitelist     = resource.sideload_whitelist.values.reduce(:merge)
-        allowed       = whitelist ? Util::IncludeParams.scrub(all_allowed, whitelist) : all_allowed
+        requested = include_directive.to_hash
 
-        Util::IncludeParams.scrub(requested, allowed)
+        whitelist = nil
+        if resource.context
+          whitelist = resource.context.sideload_whitelist
+          whitelist = whitelist[resource.context_namespace] if whitelist
+        end
+
+        whitelist ? Util::IncludeParams.scrub(requested, whitelist) : requested
       end
     end
 
@@ -170,9 +173,11 @@ module JsonapiCompliable
     end
 
     def parse_include(memo, incl_hash, namespace)
+      memo[namespace] ||= self.class.default_hash
       memo[namespace].merge!(include: incl_hash)
 
       incl_hash.each_pair do |key, sub_hash|
+        key = Util::Sideload.namespace(namespace, key)
         memo.merge!(parse_include(memo, sub_hash, key))
       end
 

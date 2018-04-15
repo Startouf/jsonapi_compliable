@@ -7,12 +7,13 @@ module JsonapiCompliable
 
     included do
       class << self
-        attr_accessor :_jsonapi_compliable
+        attr_accessor :_jsonapi_compliable, :_sideload_whitelist
       end
 
       def self.inherited(klass)
         super
         klass._jsonapi_compliable = Class.new(_jsonapi_compliable)
+        klass._sideload_whitelist = _sideload_whitelist.dup if _sideload_whitelist
       end
     end
 
@@ -52,6 +53,47 @@ module JsonapiCompliable
 
         self._jsonapi_compliable.class_eval(&blk) if blk
       end
+
+      # Set the sideload whitelist. You may want to omit sideloads for
+      # security or performance reasons.
+      #
+      # Uses JSONAPI::IncludeDirective from {{http://jsonapi-rb.org jsonapi-rb}}
+      #
+      # @example Whitelisting Relationships
+      #   # Given the following whitelist
+      #   class PostsController < ApplicationResource
+      #     jsonapi resource: MyResource
+      #
+      #     sideload_whitelist({
+      #       index: [:blog],
+      #       show: [:blog, { comments: :author }]
+      #     })
+      #
+      #     # ... code ...
+      #   end
+      #
+      #   # A request to sideload 'tags'
+      #   #
+      #   # GET /posts/1?include=tags
+      #   #
+      #   # ...will silently fail.
+      #   #
+      #   # A request for comments and tags:
+      #   #
+      #   # GET /posts/1?include=tags,comments
+      #   #
+      #   # ...will only sideload comments
+      #
+      # @param [Hash, Array, Symbol] whitelist
+      # @see Query#include_hash
+      def sideload_whitelist(hash)
+        self._sideload_whitelist = JSONAPI::IncludeDirective.new(hash).to_hash
+      end
+    end
+
+    # @api private
+    def sideload_whitelist
+      self.class._sideload_whitelist || {}
     end
 
     # Returns an instance of the associated Resource
@@ -184,13 +226,19 @@ module JsonapiCompliable
       end
     end
 
+    def jsonapi_destroy
+      _persist do
+        jsonapi_resource.destroy(params[:id])
+      end
+    end
+
     # Similar to +render :json+ or +render :jsonapi+
     #
     # By default, this will "build" the scope via +#jsonapi_scope+. To avoid
     # this, pass +scope: false+
     #
     # This builds relevant options and sends them to
-    # +JSONAPI::Serializable::Renderer.render+from
+    # +JSONAPI::Serializable::SuccessRenderer#render+from
     # {http://jsonapi-rb.org jsonapi-rb}
     #
     # @example Build Scope by Default
@@ -243,11 +291,13 @@ module JsonapiCompliable
     private
 
     def force_includes?
-      not params[:data].nil?
+      not deserialized_params.data.nil?
     end
 
     def perform_render_jsonapi(opts)
-      JSONAPI::Serializable::Renderer.render(opts.delete(:jsonapi), opts)
+      # TODO(beauby): Reuse renderer.
+      JSONAPI::Serializable::Renderer.new
+        .render(opts.delete(:jsonapi), opts).to_json
     end
 
     def _persist

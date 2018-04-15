@@ -2,10 +2,16 @@ require 'spec_helper'
 
 RSpec.describe JsonapiCompliable::Scope do
   let(:object)     { double.as_null_object }
-  let(:resource)   { double(type: :authors, default_page_size: 1).as_null_object }
   let(:query_hash) { JsonapiCompliable::Query.default_hash }
   let(:query)      { double(to_hash: { authors: query_hash }) }
   let(:instance)   { described_class.new(object, resource, query) }
+
+  let(:resource) do
+    dbl = double type: :authors,
+      default_page_size: 1,
+      pagination: nil
+    dbl.as_null_object
+  end
 
   describe '#resolve' do
     before do
@@ -24,7 +30,7 @@ RSpec.describe JsonapiCompliable::Scope do
     end
 
     context 'when sideloading' do
-      let(:sideload) { double }
+      let(:sideload) { double(name: :books) }
       let(:results)  { double }
 
       before do
@@ -33,15 +39,19 @@ RSpec.describe JsonapiCompliable::Scope do
         allow(resource).to receive(:resolve).with(objekt) { results }
       end
 
-      context 'when the requested sideload is allowed' do
+      context 'when the requested sideload exists on the resource' do
         before do
-          allow(resource).to receive(:allowed_sideloads) { { books: {} } }
           allow(resource).to receive(:sideload).with(:books) { sideload }
         end
 
         it 'resolves the sideload' do
-          expect(sideload).to receive(:resolve).with(results, query)
+          expect(sideload).to receive(:resolve).with(results, query, sideload.name)
           instance.resolve
+        end
+
+        context 'and it is nested within the same namespace' do
+          xit 'resolves with the correct namespace' do
+          end
         end
 
         context 'but no parents were found' do
@@ -54,15 +64,15 @@ RSpec.describe JsonapiCompliable::Scope do
         end
       end
 
-      context 'when the requested sideload is not allowed' do
+      context 'when the requested sideload does not exist' do
         before do
-          allow(resource).to receive(:allowed_sideloads) { {} }
+          allow(resource).to receive(:sideload).with(:books) { nil }
         end
 
-        it 'does not resolve the sideload' do
-          expect(resource).to_not receive(:sideload)
-          expect(sideload).to_not receive(:resolve)
-          instance.resolve
+        it 'raises a helpful error' do
+          expect do
+            instance.resolve
+          end.to raise_error(JsonapiCompliable::Errors::InvalidInclude, 'The requested included relationship "books" is not supported on resource "authors"')
         end
       end
     end

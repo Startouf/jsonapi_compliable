@@ -23,7 +23,7 @@ RSpec.describe 'fields' do
   let!(:author) { Author.create!(first_name: 'Stephen', last_name: 'King') }
 
   def json
-    render(scope.resolve, class: SerializableTestFields)
+    render(scope.resolve, class: { Author: SerializableTestFields })
   end
 
   it 'does not limit without fields param' do
@@ -37,7 +37,7 @@ RSpec.describe 'fields' do
 
   it 'disallows fields guarded by :if, even if specified' do
     params[:fields] = { authors: 'first_name,salary' }
-    ctx = double(current_user: 'non-admin')
+    ctx = double(current_user: 'non-admin').as_null_object
     resource.with_context ctx do
       expect(json['data'][0]['attributes'].keys).to_not include('salary')
     end

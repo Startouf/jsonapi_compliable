@@ -66,7 +66,7 @@ RSpec.describe JsonapiCompliable::Sideload do
       end
 
       it 'groups parents, then resolves that group' do
-        instance.resolve(parents, query)
+        instance.resolve(parents, query, instance.name)
         expect(parents.first[:child]).to eq({ parent_id: 1 })
       end
     end
@@ -96,11 +96,11 @@ RSpec.describe JsonapiCompliable::Sideload do
         expect(JsonapiCompliable::Scope).to receive(:new)
           .with(base_scope, anything, query, default_paginate: false, namespace: :foo)
           .and_return(scope)
-        instance.resolve(parents, query)
+        instance.resolve(parents, query, instance.name)
       end
 
       it 'assigns results to parents' do
-        instance.resolve(parents, query)
+        instance.resolve(parents, query, instance.name)
         expect(parents.first[:child]).to eq({ parent_id: 1 })
       end
 
@@ -168,38 +168,6 @@ RSpec.describe JsonapiCompliable::Sideload do
           .to receive(:associate).with('parent', 'child', :parent_name, :has_many)
         instance.associate('parent', 'child')
       end
-    end
-  end
-
-  describe '#to_hash' do
-    # Set this up to catch any recursive trap
-    let(:resource) do
-      resource = JsonapiCompliable::Resource
-      resource.allow_sideload :bing, resource: JsonapiCompliable::Resource
-      resource
-    end
-
-    before do
-      resource = JsonapiCompliable::Resource
-      instance.allow_sideload :bar, resource: resource do
-        allow_sideload :baz, resource: resource do
-          allow_sideload :bazoo, resource: resource
-        end
-      end
-      instance.allow_sideload :blah, resource: resource
-    end
-
-    it 'recursively builds a hash of sideloads' do
-      expect(instance.to_hash).to eq({
-        foo: {
-          bar: {
-            baz: {
-              bazoo: {}
-            }
-          },
-          blah: {}
-        }
-      })
     end
   end
 end

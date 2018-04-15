@@ -39,9 +39,9 @@ module JsonapiCompliable
               parent.send(:"#{association_name}=", relevant_child)
             end
           end
-        end
 
-        instance_eval(&blk) if blk
+          instance_eval(&blk) if blk
+        end
       end
 
       def has_one(association_name, scope: nil, resource:, foreign_key:, primary_key: :id, &blk)
@@ -76,7 +76,11 @@ module JsonapiCompliable
             parent_ids = parents.map { |p| p.send(primary_key) }
             parent_ids.uniq!
             parent_ids.compact!
-            _scope.call.joins(through).where(through => { fk => parent_ids }).distinct
+            _scope.call
+              .joins(through)
+              .preload(through) # otherwise n+1 as we reference in #assign
+              .where(through => { fk => parent_ids })
+              .distinct
           end
 
           assign do |parents, children|

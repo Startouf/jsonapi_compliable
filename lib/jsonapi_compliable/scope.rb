@@ -80,10 +80,14 @@ module JsonapiCompliable
       return if results == []
 
       includes.each_pair do |name, nested|
-        if @resource.allowed_sideloads.has_key?(name)
-          sideload = @resource.sideload(name)
-          sideload.resolve(results, @query)
+        sideload = @resource.sideload(name)
+
+        unless sideload
+          raise JsonapiCompliable::Errors::InvalidInclude.new(name, @resource.type)
         end
+
+        namespace = Util::Sideload.namespace(@namespace, sideload.name)
+        sideload.resolve(results, @query, namespace)
       end
     end
 

@@ -170,24 +170,69 @@ module JsonapiCompliable
     end
 
     # Configure how to associate parent and child records.
-    #
-    # @example Basic attr_accessor
-    #   def associate(parent, child)
-    #     if type == :has_many
-    #       parent.send(:"#{name}").push(child)
-    #     else
-    #       child.send(:"#{name}=", parent)
-    #     end
-    #   end
+    # Delegates to #resource
     #
     # @see #name
     # @see #type
+    # @api private
     def associate(parent, child)
       association_name = @parent ? @parent.name : name
-      resource_class.config[:adapter].associate parent,
-        child,
-        association_name,
-        type
+      resource.associate(parent, child, association_name, type)
+    end
+
+    # Configure how to disassociate parent and child records.
+    # Delegates to #resource
+    #
+    # @see #name
+    # @see #type
+    # @api private
+    def disassociate(parent, child)
+      association_name = @parent ? @parent.name : name
+      resource.disassociate(parent, child, association_name, type)
+    end
+
+    HOOK_ACTIONS = [:save, :create, :update, :destroy, :disassociate]
+
+    # Configure post-processing hooks
+    #
+    # In particular, helpful for bulk operations. "after_save" will fire
+    # for any persistence method - +:create+, +:update+, +:destroy+, +:disassociate+.
+    # Use "only" and "except" keyword arguments to fire only for a
+    # specific persistence method.
+    #
+    # @example Bulk Notify Users on Invite
+    #   class ProjectResource < ApplicationResource
+    #     # ... code ...
+    #     allow_sideload :users, resource: UserResource do
+    #       # scope {}
+    #       # assign {}
+    #       after_save only: [:create] do |project, users|
+    #         UserMailer.invite(project, users).deliver_later
+    #       end
+    #     end
+    #   end
+    #
+    # @see #hooks
+    # @see Util::Persistence
+    def after_save(only: [], except: [], &blk)
+      actions = HOOK_ACTIONS - except
+      actions = only & actions
+      actions = [:save] if only.empty? && except.empty?
+      actions.each do |a|
+        hooks[:"after_#{a}"] << blk
+      end
+    end
+
+    # Get the hooks the user has configured
+    # @see #after_save
+    # @return hash of hooks, ie +{ after_create: #<Proc>}+
+    def hooks
+      @hooks ||= {}.tap do |h|
+        HOOK_ACTIONS.each do |a|
+          h[:"after_#{a}"] = []
+          h[:"before_#{a}"] = []
+        end
+      end
     end
 
     # Define an attribute that groups the parent records. For instance, with
@@ -219,9 +264,7 @@ module JsonapiCompliable
     # @see Resource#with_context
     # @return [void]
     # @api private
-    def resolve(parents, query, namespace = nil)
-      namespace ||= name
-
+    def resolve(parents, query, namespace)
       if polymorphic?
         resolve_polymorphic(parents, query)
       else
@@ -286,47 +329,28 @@ module JsonapiCompliable
       @sideloads[name]
     end
 
-    # Looks at all nested sideload, and all nested sideloads for the
-    # corresponding Resources, and returns an Include Directive hash
-    #
-    # For instance, this configuration:
-    #
-    #   class BarResource < ApplicationResource
-    #     allow_sideload :baz do
-    #     end
-    #   end
-    #
-    #   class PostResource < ApplicationResource
-    #     allow_sideload :foo do
-    #       allow_sideload :bar, resource: BarResource do
-    #       end
-    #     end
-    #   end
-    #
-    # +post_resource.sideloading.to_hash+ would return
-    #
-    #   { base: { foo: { bar: { baz: {} } } } }
-    #
-    # @return [Hash] The nested include hash
     # @api private
-    def to_hash(processed = [])
-      return { name => {} } if processed.include?(self)
-      processed << self
-
-      result = { name => {} }.tap do |hash|
-        @sideloads.each_pair do |key, sideload|
-          hash[name][key] = sideload.to_hash(processed)[key] || {}
-
-          if sideload.polymorphic?
-            sideload.polymorphic_groups.each_pair do |type, sl|
-              hash[name][key].merge!(nested_sideload_hash(sl, processed))
-            end
-          else
-            hash[name][key].merge!(nested_sideload_hash(sideload, processed))
+    def all_sideloads
+      {}.tap do |all|
+        if polymorphic?
+          polymorphic_groups.each_pair do |type, sl|
+            all.merge!(sl.resource.sideloading.all_sideloads)
           end
+        else
+          all.merge!(@sideloads.merge(resource.sideloading.sideloads))
         end
       end
-      result
+    end
+
+    def association_names(memo = [])
+      all_sideloads.each_pair do |name, sl|
+        unless memo.include?(sl.name)
+          memo << sl.name
+          memo |= sl.association_names(memo)
+        end
+      end
+
+      memo
     end
 
     # @api private
@@ -336,15 +360,16 @@ module JsonapiCompliable
       end
     end
 
-    private
+    def fire_hooks!(parent, objects, method)
+      return unless self.hooks
 
-    def nested_sideload_hash(sideload, processed)
-      {}.tap do |hash|
-        if sideloading = sideload.resource_class.sideloading
-          hash.merge!(sideloading.to_hash(processed)[:base])
-        end
+      hooks = self.hooks[:"after_#{method}"] + self.hooks[:after_save]
+      hooks.compact.each do |hook|
+        resource.instance_exec(parent, objects, &hook)
       end
     end
+
+    private
 
     def polymorphic_grouper(grouping_field)
       lambda do |record|

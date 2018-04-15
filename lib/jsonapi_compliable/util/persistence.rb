@@ -5,11 +5,12 @@ class JsonapiCompliable::Util::Persistence
   # @param [Hash] meta see (Deserializer#meta)
   # @param [Hash] attributes see (Deserializer#attributes)
   # @param [Hash] relationships see (Deserializer#relationships)
-  def initialize(resource, meta, attributes, relationships)
+  def initialize(resource, meta, attributes, relationships, caller_model)
     @resource      = resource
     @meta          = meta
     @attributes    = attributes
     @relationships = relationships
+    @caller_model  = caller_model
   end
 
   # Perform the actual save logic.
@@ -26,6 +27,7 @@ class JsonapiCompliable::Util::Persistence
   # * associate parent objects with current object
   # * process children
   # * associate children
+  # * run post-process sideload hooks
   # * return current object
   #
   # @return the persisted model instance
@@ -35,21 +37,28 @@ class JsonapiCompliable::Util::Persistence
 
     persisted = persist_object(@meta[:method], @attributes)
     assign_temp_id(persisted, @meta[:temp_id])
+
     associate_parents(persisted, parents)
 
-    children = process_has_many(@relationships) do |x|
+    children = process_has_many(@relationships, persisted) do |x|
       update_foreign_key(persisted, x[:attributes], x)
     end
 
-    associate_children(persisted, children)
-    persisted unless @meta[:method] == :destroy
+    associate_children(persisted, children) unless @meta[:method] == :destroy
+    post_process(persisted, parents)
+    post_process(persisted, children)
+    persisted
   end
 
   private
 
   # The child's attributes should be modified to nil-out the
   # foreign_key when the parent is being destroyed or disassociated
+  #
+  # This is not the case for HABTM, whose "foreign key" is a join table
   def update_foreign_key(parent_object, attrs, x)
+    return if x[:sideload].type == :habtm
+
     if [:destroy, :disassociate].include?(x[:meta][:method])
       attrs[x[:foreign_key]] = nil
       update_foreign_type(attrs, x, null: true) if x[:is_polymorphic]
@@ -71,34 +80,53 @@ class JsonapiCompliable::Util::Persistence
   end
 
   def associate_parents(object, parents)
+    # No need to associate to destroyed objects
+    parents = parents.select { |x| x[:meta][:method] != :destroy }
+
     parents.each do |x|
-      x[:sideload].associate(x[:object], object) if x[:object] && object
+      if x[:object] && object
+        if x[:meta][:method] == :disassociate
+          x[:sideload].disassociate(x[:object], object)
+        else
+          x[:sideload].associate(x[:object], object)
+        end
+      end
     end
   end
 
   def associate_children(object, children)
     children.each do |x|
-      x[:sideload].associate(object, x[:object]) if x[:object] && object
+      if x[:object] && object
+        if x[:meta][:method] == :disassociate
+          x[:sideload].disassociate(object, x[:object])
+        elsif x[:meta][:method] == :destroy
+          if x[:sideload].type == :habtm
+            x[:sideload].disassociate(object, x[:object])
+          end # otherwise, no need to disassociate destroyed objects
+        else
+          x[:sideload].associate(object, x[:object])
+        end
+      end
     end
   end
 
   def persist_object(method, attributes)
     case method
       when :destroy
-        @resource.destroy(attributes[:id])
-      when :disassociate, nil
-        @resource.update(attributes)
+        call_resource_method(:destroy, attributes[:id], @caller_model)
+      when :update, nil, :disassociate
+        call_resource_method(:update, attributes, @caller_model)
       else
-        @resource.send(method, attributes)
+        call_resource_method(:create, attributes, @caller_model)
     end
   end
 
-  def process_has_many(relationships)
+  def process_has_many(relationships, caller_model)
     [].tap do |processed|
       iterate(except: [:polymorphic_belongs_to, :belongs_to]) do |x|
         yield x
         x[:object] = x[:sideload].resource
-          .persist_with_relationships(x[:meta], x[:attributes], x[:relationships])
+          .persist_with_relationships(x[:meta], x[:attributes], x[:relationships], caller_model)
         processed << x
       end
     end
@@ -110,6 +138,16 @@ class JsonapiCompliable::Util::Persistence
         x[:object] = x[:sideload].resource
           .persist_with_relationships(x[:meta], x[:attributes], x[:relationships])
         processed << x
+      end
+    end
+  end
+
+  def post_process(caller_model, processed)
+    groups = processed.group_by { |x| x[:meta][:method] }
+    groups.each_pair do |method, group|
+      group.group_by { |g| g[:sideload] }.each_pair do |sideload, members|
+        objects = members.map { |x| x[:object] }
+        sideload.fire_hooks!(caller_model, objects, method)
       end
     end
   end
@@ -126,6 +164,25 @@ class JsonapiCompliable::Util::Persistence
 
     JsonapiCompliable::Util::RelationshipPayload.iterate(opts) do |x|
       yield x
+    end
+  end
+
+  # In the Resource, we want to allow:
+  #
+  # def create(attrs)
+  #
+  # and
+  #
+  # def create(attrs, parent = nil)
+  #
+  # 'parent' is an optional parameter that should not be part of the
+  # method signature in most use cases.
+  def call_resource_method(method_name, attributes, caller_model)
+    method = @resource.method(method_name)
+    if [2,-2].include?(method.arity)
+      method.call(attributes, caller_model)
+    else
+      method.call(attributes)
     end
   end
 end
