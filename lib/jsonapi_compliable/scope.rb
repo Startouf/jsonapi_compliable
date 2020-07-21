@@ -99,6 +99,7 @@ module JsonapiCompliable
           nested_query = @query.dup
           if (nested_filters = nested_query.params[:filter]&.delete(@namespace))
             nested_query.params[:filter].merge!(nested_filters)
+            nested_query.params[:filter].permit! if nested_query.params[:filter].respond_to?(:permit!)
           end
           resolve_sideload = -> {
             begin
