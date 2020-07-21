@@ -85,6 +85,7 @@ module JsonapiCompliable
       concurrent = ::JsonapiCompliable.config.experimental_concurrency
       promises = []
 
+
       includes.each_pair do |name, nested|
         sideload = @resource.sideload(name)
 
@@ -95,9 +96,13 @@ module JsonapiCompliable
           end
         else
           namespace = Util::Sideload.namespace(@namespace, sideload.name)
+          nested_query = @query.dup
+          if (nested_filters = nested_query.params[:filter]&.delete(@namespace))
+            nested_query.params[:filter].merge!(nested_filters)
+          end
           resolve_sideload = -> {
             begin
-              sideload.resolve(results, @query, namespace)
+              sideload.resolve(results, nested_query, namespace)
             ensure
               ActiveRecord::Base.clear_active_connections! if defined?(ActiveRecord)
             end
