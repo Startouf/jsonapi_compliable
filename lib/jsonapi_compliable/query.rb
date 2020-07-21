@@ -73,7 +73,7 @@ module JsonapiCompliable
     #
     # @return [Array<Symbol>] all association names, recursive
     def association_names
-      @association_names ||= Util::Hash.keys(include_hash)
+      @association_names ||= Util::Hash.keys(include_hash).uniq
     end
 
     # A flat hash of sanitized query parameters.
