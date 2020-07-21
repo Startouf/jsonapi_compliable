@@ -85,7 +85,6 @@ module JsonapiCompliable
       concurrent = ::JsonapiCompliable.config.experimental_concurrency
       promises = []
 
-
       includes.each_pair do |name, nested|
         sideload = @resource.sideload(name)
 
