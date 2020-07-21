@@ -28,6 +28,7 @@ module JsonapiCompliable
     # aliases. If valid, call either the default or custom filtering logic.
     # @return the scope we are chaining/modifying
     def apply
+      raise JsonapiCompliable::Errors::RequiredFilter.new(missing_required_filters) unless required_filters_provided?
       each_filter do |filter, value|
         @scope = filter_scope(filter, value)
       end
@@ -51,10 +52,39 @@ module JsonapiCompliable
       filter_param.each_pair do |param_name, param_value|
         filter = find_filter!(param_name.to_sym)
         value  = param_value
-        value  = value.split(',') if value.is_a?(String) && value.include?(',')
+        value  = parse_string_arrays(value)
         value  = normalize_string_values(value)
         yield filter, value
       end
+    end
+
+    # foo,bar,baz becomes ["foo", "bar", "baz"]
+    # {{foo}} becomes ["foo"]
+    # {{foo,bar}},baz becomes ["foo,bar", "baz"]
+    #
+    # JSON of
+    # {{{ "id": 1 }}} becomes { 'id' => 1 }
+    def parse_string_arrays(value)
+      if value.is_a?(String)# && value[0..2] != '{{{'
+        # Escaped JSON
+        if value[0..2] == '{{{'
+          value = value.sub('{{', '').sub('}}', '')
+          value = JSON.parse(value)
+        else
+          # Find the quoted strings
+          quotes = value.scan(/{{.*?}}/)
+          # remove them from the rest
+          quotes.each { |q| value.gsub!(q, '') }
+          # remove the quote characters from the quoted strings
+          quotes.each { |q| q.gsub!('{{', '').gsub!('}}', '') }
+          # merge everything back together into an array
+          value = Array(value.split(',')) + quotes
+          # remove any blanks that are left
+          value.reject! { |v| v.length.zero? }
+          value = value[0] if value.length == 1
+        end
+      end
+      value
     end
 
     # Convert a string of "true" to true, etc

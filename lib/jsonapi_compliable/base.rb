@@ -106,7 +106,14 @@ module JsonapiCompliable
     #
     # @return [Resource] the configured Resource for this controller
     def jsonapi_resource
-      @jsonapi_resource ||= self.class._jsonapi_compliable.new
+      @jsonapi_resource ||= begin
+        resource = self.class._jsonapi_compliable
+        if resource.is_a?(Hash)
+          resource[action_name.to_sym].new
+        else
+          resource.new
+        end
+      end
     end
 
     # Instantiates the relevant Query object
@@ -130,9 +137,29 @@ module JsonapiCompliable
     # @api private
     # @yieldreturn Code to run within the current context
     def wrap_context
-      jsonapi_resource.with_context(self, action_name.to_sym) do
+      jsonapi_resource.with_context(jsonapi_context, action_name.to_sym) do
         yield
       end
+    end
+
+    # Override if you'd like the "context" to be something other than
+    # an instance of this class.
+    # In Rails, context is the controller instance.
+    #
+    # @example Overriding
+    #   # within your controller
+    #   def jsonapi_context
+    #     current_user
+    #   end
+    #
+    #   # within a resource
+    #   default_filter :by_user do |scope, context|
+    #     scope.where(user_id: context.id)
+    #   end
+    #
+    # @return the context object you'd like
+    def jsonapi_context
+      self
     end
 
     # Use when direct, low-level access to the scope is required.
@@ -226,9 +253,20 @@ module JsonapiCompliable
       end
     end
 
+    # Delete the model
+    # Any error, including validation errors, will roll back the transaction.
+    #
+    # Note: +before_commit+ hooks still run unless excluded
+    #
+    # @return [Util::ValidationResponse]
     def jsonapi_destroy
-      _persist do
-        jsonapi_resource.destroy(params[:id])
+      jsonapi_resource.transaction do
+        model = jsonapi_resource.destroy(params[:id])
+        validator = ::JsonapiCompliable::Util::ValidationResponse.new \
+          model, deserialized_params
+        validator.validate!
+        jsonapi_resource.before_commit(model, :destroy)
+        validator
       end
     end
 
@@ -268,7 +306,11 @@ module JsonapiCompliable
       opts  = default_jsonapi_render_options.merge(opts)
       opts  = Util::RenderOptions.generate(scope, query_hash, opts)
       opts[:expose][:context] = self
-      opts[:include] = deserialized_params.include_directive if force_includes?
+
+      if opts[:include].empty? && force_includes?
+        opts[:include] = deserialized_params.include_directive
+      end
+
       perform_render_jsonapi(opts)
     end
 
@@ -290,25 +332,26 @@ module JsonapiCompliable
 
     private
 
+    def _persist
+      jsonapi_resource.transaction do
+        ::JsonapiCompliable::Util::Hooks.record do
+          model = yield
+          validator = ::JsonapiCompliable::Util::ValidationResponse.new \
+            model, deserialized_params
+          validator.validate!
+          validator
+        end
+      end
+    end
+
     def force_includes?
-      not deserialized_params.data.nil?
+      not (deserialized_params.data.nil? || deserialized_params.data.empty?)
     end
 
     def perform_render_jsonapi(opts)
       # TODO(beauby): Reuse renderer.
       JSONAPI::Serializable::Renderer.new
         .render(opts.delete(:jsonapi), opts).to_json
-    end
-
-    def _persist
-      validation_response = nil
-      jsonapi_resource.transaction do
-        object = yield
-        validation_response = Util::ValidationResponse.new \
-          object, deserialized_params
-        raise Errors::ValidationError unless validation_response.to_a[1]
-      end
-      validation_response
     end
   end
 end

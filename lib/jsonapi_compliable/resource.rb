@@ -172,7 +172,8 @@ module JsonapiCompliable
       config[:filters][name.to_sym] = {
         aliases: aliases,
         if: opts[:if],
-        filter: blk
+        filter: blk,
+        required: opts[:required].respond_to?(:call) ? opts[:required] : !!opts[:required]
       }
     end
 
@@ -254,6 +255,29 @@ module JsonapiCompliable
     # @param [Class] klass The associated Model class
     def self.model(klass)
       config[:model] = klass
+    end
+
+    # Register a hook that fires AFTER all validation logic has run -
+    # including validation of nested objects - but BEFORE the transaction
+    # has closed.
+    #
+    # Helpful for things like "contact this external service after persisting
+    # data, but roll everything back if there's an error making the service call"
+    #
+    # @param [Hash] +only: [:create, :update, :destroy]+
+    def self.before_commit(only: [:create, :update, :destroy], &blk)
+      Array(only).each do |verb|
+        config[:before_commit][verb] = blk
+      end
+    end
+
+    # Actually fire the before commit hooks
+    #
+    # @see .before_commit
+    # @api private
+    def before_commit(model, method)
+      hook = self.class.config[:before_commit][method]
+      hook.call(model) if hook
     end
 
     # Define custom sorting logic
@@ -390,6 +414,7 @@ module JsonapiCompliable
           sorting: nil,
           pagination: nil,
           model: nil,
+          before_commit: {},
           adapter: Adapters::Abstract.new
         }
       end
@@ -704,7 +729,8 @@ module JsonapiCompliable
         adapter.transaction(model) do
           response = yield
         end
-      rescue Errors::ValidationError
+      rescue Errors::ValidationError => e
+        response = e.validation_response
       end
       response
     end

@@ -1,4 +1,5 @@
 require "jsonapi_compliable/version"
+require "jsonapi_compliable/configuration"
 require "jsonapi_compliable/errors"
 require "jsonapi_compliable/resource"
 require "jsonapi_compliable/query"
@@ -23,12 +24,21 @@ require "jsonapi_compliable/util/relationship_payload"
 require "jsonapi_compliable/util/persistence"
 require "jsonapi_compliable/util/validation_response"
 require "jsonapi_compliable/util/sideload"
+require "jsonapi_compliable/util/hooks"
 
 # require correct jsonapi-rb before extensions
 if defined?(Rails)
   require 'jsonapi_compliable/rails'
 else
   require 'jsonapi/serializable'
+end
+
+# Temporary fix until fixed upstream
+# https://github.com/jsonapi-rb/jsonapi-serializable/pull/102
+JSONAPI::Serializable::Resource.class_eval do
+  def requested_relationships(fields)
+    @_relationships
+  end
 end
 
 require "jsonapi_compliable/extensions/extra_attribute"
@@ -63,5 +73,19 @@ module JsonapiCompliable
     ensure
       self.context = prior
     end
+  end
+
+  def self.config
+    @config ||= Configuration.new
+  end
+
+  # @example
+  #   JsonapiCompliable.configure do |c|
+  #     c.raise_on_missing_sideload = false
+  #   end
+  #
+  # @see Configuration
+  def self.configure
+    yield config
   end
 end

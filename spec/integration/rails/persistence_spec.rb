@@ -22,7 +22,13 @@ if ENV["APPRAISAL_INITIALIZED"]
         if success
           render_jsonapi(employee, scope: false)
         else
-          render json: { error: 'payload' }
+          render json: {
+            errors: {
+              employee: employee.errors,
+              positions: employee.positions.map(&:errors),
+              departments: employee.positions.map(&:department).compact.map(&:errors)
+            }
+          }
         end
       end
 
@@ -32,7 +38,7 @@ if ENV["APPRAISAL_INITIALIZED"]
         if success
           render_jsonapi(employee, scope: false)
         else
-          render json: { error: 'payload' }
+          render json: { error: employee.errors }
         end
       end
 
@@ -96,7 +102,11 @@ if ENV["APPRAISAL_INITIALIZED"]
 
         it 'returns validation error response' do
           do_post
-          expect(json['error']).to eq('payload')
+          expect(json['errors']).to eq({
+            'employee' => { 'first_name' => ["can't be blank"] },
+            'departments' => [],
+            'positions' => []
+          })
         end
       end
     end
@@ -133,7 +143,7 @@ if ENV["APPRAISAL_INITIALIZED"]
 
         it 'responds with error' do
           do_put(employee.id)
-          expect(json['error']).to eq('payload')
+          expect(json['error']).to eq('first_name' => ["can't be blank"])
         end
       end
     end
@@ -499,6 +509,52 @@ if ENV["APPRAISAL_INITIALIZED"]
         expect(positions[1].title).to eq('manager')
         expect(department.name).to eq('safety')
       end
+      
+      context 'when a has_many relationship has validation error' do
+        around do |e|
+          begin
+            Position.validates :title, presence: true
+            e.run
+          ensure
+            Position.clear_validators!
+          end
+        end
+
+        before do
+          payload[:included][0][:attributes].delete(:title)
+        end
+
+        it 'rolls back the entire transaction' do
+          expect {
+            do_post
+          }.to_not change { Employee.count+Position.count+Department.count }
+          expect(json['errors']['positions'])
+            .to eq([{ 'title' => ["can't be blank"] }, {}])
+        end
+      end
+
+      context 'when a belongs_to relationship has a validation error' do
+        around do |e|
+          begin
+            Department.validates :name, presence: true
+            e.run
+          ensure
+            Department.clear_validators!
+          end
+        end
+
+        before do
+          payload[:included][1][:attributes].delete(:name)
+        end
+
+        it 'rolls back the entire transaction' do
+          expect {
+            do_post
+          }.to_not change { Employee.count+Position.count+Department.count }
+          expect(json['errors']['departments'])
+            .to eq([{ 'name' => ["can't be blank"] }])
+        end
+      end
 
       context 'when associating to an existing record' do
         let!(:classification) { Classification.create!(description: 'senior') }
@@ -703,6 +759,66 @@ if ENV["APPRAISAL_INITIALIZED"]
           do_put(employee.id)
           expect(json).to_not have_key('included')
         end
+      end
+    end
+
+    describe 'nested validation errors' do
+      let(:payload) do
+        {
+          data: {
+            type: 'employees',
+            attributes: { first_name: 'Joe' },
+            relationships: {
+              positions: {
+                data: [
+                  { :'temp-id' => 'a', type: 'positions', method: 'create' }
+                ]
+              }
+            }
+          },
+          included: [
+            {
+              :'temp-id' => 'a',
+              type: 'positions',
+              attributes: {},
+              relationships: {
+                department: {
+                  data: {
+                    :'temp-id' => 'b', type: 'departments', method: 'create'
+                  }
+                }
+              }
+            },
+            {
+              :'temp-id' => 'b',
+              type: 'departments',
+              attributes: {}
+            }
+          ]
+        }
+      end
+
+      before do
+        allow_any_instance_of(Employee)
+          .to receive(:force_validation_error)
+          .and_return(true)
+        allow_any_instance_of(Position)
+          .to receive(:force_validation_error)
+          .and_return(true)
+        allow_any_instance_of(Department)
+          .to receive(:force_validation_error)
+          .and_return(true)
+      end
+
+      it 'displays validation errors for each nested object' do
+        do_post
+        expect(json).to eq({
+          'errors' => {
+            'employee' => { 'base' => ['Forced validation error'] },
+            'positions' => [{ 'base' => ['Forced validation error'] }],
+            'departments' => [{ 'base' => ['Forced validation error'] }]
+          }
+        })
       end
     end
   end
