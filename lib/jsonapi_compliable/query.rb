@@ -210,6 +210,9 @@ module JsonapiCompliable
 
           if association?(key)
             k, v = Hash(value).to_a.first
+            if hash[key].nil?
+              raise "Trying to filter on #{key} but this resource was not in the included param"
+            end
             hash[key][:filter][k.to_sym] = v
           else
             hash[resource.type][:filter][key] = value
