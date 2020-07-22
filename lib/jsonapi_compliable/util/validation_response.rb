@@ -87,7 +87,7 @@ class JsonapiCompliable::Util::ValidationResponse
       valid = valid_object?(r)
       checks << valid
       if valid
-        checks << all_valid?(r, payload[index][:relationships] || {})
+        checks << all_valid?(r, payload_item_with_id[:relationships] || {})
       end
     end.compact
   end
@@ -100,7 +100,7 @@ class JsonapiCompliable::Util::ValidationResponse
   def check_items_with_temp_id(payload, related_objects, checks)
     payload.each do |payload_item_with_temp_id|
       related_object = related_objects.detect do |obj|
-        obj.instance_variable_get(:@_jsonapi_temp_id, temp_id) == payload_item_with_temp_id.dig(:meta, :temp_id)
+        obj.instance_variable_get(:@_jsonapi_temp_id) == payload_item_with_temp_id.dig(:meta, :temp_id)
       end
       if !related_object
         raise ::JsonapiCompliable::Errors::ValidationError.new(self), 'could not match incoming item with temp-id to its related object'
@@ -108,7 +108,7 @@ class JsonapiCompliable::Util::ValidationResponse
       valid = valid_object?(related_object)
       checks << valid
       if valid
-        checks << all_valid?(related_object, payload[index][:relationships] || {})
+        checks << all_valid?(related_object, payload_item_with_temp_id[:relationships] || {})
       end
     end
   end
