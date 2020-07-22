@@ -102,10 +102,11 @@ class JsonapiCompliable::Util::ValidationResponse
   #   should exclude objects already matched by ID
   # @param checks [Array] list of checks
   #
-  # @return [Array<?>] array of related objects that were found by ID
+  # @return [void]
   def check_items_with_temp_id(payload, related_objects, checks)
-    sorted_related_objects = if related_objects.all? { |o| o.respond_to?(:created_at) }
-      related_objects.sort_by!(&:created_at)
+    # We can only sort by created at if all items have a created at. otherwise assume any order
+    sorted_related_objects = if related_objects.all? { |o| o.respond_to?(:created_at) && o.created_at.present? }
+      related_objects.sort_by(&:created_at)
     else
       related_objects
     end
