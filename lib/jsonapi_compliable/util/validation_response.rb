@@ -51,7 +51,7 @@ class JsonapiCompliable::Util::ValidationResponse
       if payload.is_a?(Array)
         related_objects = model.send(name)
 
-        payload_with_id, other = payload.partition { |h| h.dig('id').present? }
+        payload_with_id, other = payload.partition { |h| h.dig('id').present? || h.dig(:attributes, 'id').present? }
         payload_with_temp_id, unknown = other.partition { |h| h.with_indifferent_access.dig(:meta, :temp_id).present? }
         raise "Resources not identified by id or temp_id" if  unknown.any?
 
@@ -77,7 +77,7 @@ class JsonapiCompliable::Util::ValidationResponse
   def check_items_with_id(payload, related_objects, checks)
     payload.each do |payload_item_with_id|
       related_object = related_objects.detect do |o|
-        o.id.to_s == payload_item_with_id.dig('id')
+        o.id.to_s == payload_item_with_id.dig('id') || payload_item_with_id.dig(:attributes, 'id')
       end
       if !related_object
         raise ::JsonapiCompliable::Errors::ValidationError.new(self), 'could not match incoming item with ID to its related object'
