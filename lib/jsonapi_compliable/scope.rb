@@ -95,6 +95,9 @@ module JsonapiCompliable
           end
         else
           namespace = Util::Sideload.namespace(@namespace, sideload.name)
+
+          # In order to successfully filter nexted associations include=book.genre & filter[book][genre][name]="comedy"
+          # we need to extract and pass filter[genre][name]="comedy" at some point to the sideloads
           nested_query = @query.dup
           if (nested_filters = nested_query.params[:filter]&.delete(@namespace))
             nested_query.params[:filter].merge!(nested_filters)
