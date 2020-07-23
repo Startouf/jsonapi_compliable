@@ -7,9 +7,9 @@ class JsonapiCompliable::Util::Persistence
   # @param [Hash] relationships see (Deserializer#relationships)
   def initialize(resource, meta, attributes, relationships, caller_model)
     @resource      = resource
-    @meta          = meta
-    @attributes    = attributes
-    @relationships = relationships
+    @meta          = meta.dup
+    @attributes    = attributes.dup
+    @relationships = relationships.dup
     @caller_model  = caller_model
   end
 

@@ -51,13 +51,16 @@ class JsonapiCompliable::Util::ValidationResponse
       if payload.is_a?(Array)
         related_objects = model.send(name)
 
-        payload_with_id, other = payload.partition { |h| h.dig('id').present? || h.dig(:attributes, 'id').present? }
+        payload_with_id, other = payload.partition { |h| get_id_from_payload(h) }
         payload_with_temp_id, unknown = other.partition { |h| h.with_indifferent_access.dig(:meta, :temp_id).present? }
         raise "Resources not identified by id or temp_id" if  unknown.any?
 
         check_items_with_id(payload_with_id, related_objects, checks)
         check_items_with_temp_id(payload_with_temp_id, related_objects, checks)
       else
+        # Do not forget to handle destroy disassociate
+        next if model.nil? && %i[destroy disassociate].include?(payload.dig(:meta, :method))
+
         related_object = model.send(name)
         valid = valid_object?(related_object)
         checks << valid
@@ -77,17 +80,17 @@ class JsonapiCompliable::Util::ValidationResponse
   def check_items_with_id(payload, related_objects, checks)
     payload.each do |payload_item_with_id|
       related_object = related_objects.detect do |o|
-        o.id.to_s == payload_item_with_id.dig('id') || payload_item_with_id.dig(:attributes, 'id')
+        o.id.to_s == get_id_from_payload(payload_item_with_id)
       end
-      if !related_object
+      # Do not forget to handle destroy disassociate
+      if !related_object && !%i[destroy disassociate].include?(payload_item_with_id.dig(:meta, :method))
         raise ::JsonapiCompliable::Errors::ValidationError.new(self), 'could not match incoming item with ID to its related object'
       end
 
-      related_objects_with_existing_ids << related_object
-      valid = valid_object?(r)
+      valid = valid_object?(related_object)
       checks << valid
       if valid
-        checks << all_valid?(r, payload_item_with_id[:relationships] || {})
+        checks << all_valid?(related_object, payload_item_with_id[:relationships] || {})
       end
     end.compact
   end
@@ -111,5 +114,9 @@ class JsonapiCompliable::Util::ValidationResponse
         checks << all_valid?(related_object, payload_item_with_temp_id[:relationships] || {})
       end
     end
+  end
+
+  def get_id_from_payload(payload)
+    payload.dig(:attributes, 'id') || payload.dig(:attributes, :id)
   end
 end
