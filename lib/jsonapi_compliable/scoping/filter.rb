@@ -50,6 +50,7 @@ module JsonapiCompliable
 
     def each_filter
       filter_param.each_pair do |param_name, param_value|
+        next if resource.sideloading.association_names.include?(param_name.to_sym)
         filter = find_filter!(param_name.to_sym)
         value  = param_value
         value  = parse_string_arrays(value)

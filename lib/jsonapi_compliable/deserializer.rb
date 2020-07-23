@@ -58,7 +58,7 @@ class JsonapiCompliable::Deserializer
   def validate_content_type
     content_type = @env['CONTENT_TYPE'] || ""
     if !(content_type.include?("application/json") || content_type.include?("application/vnd.api+json"))
-      print("WARNING - JSONAPI Compliable :: Content-Type header appears to be set to an invalid value: #{content_type}\n")
+      warn("WARNING - JSONAPI Compliable :: Content-Type header appears to be set to an invalid value: #{content_type}\n")
     end
   end
 
@@ -199,7 +199,7 @@ class JsonapiCompliable::Deserializer
     included_object[:relationships] ||= {}
 
     attributes = included_object[:attributes] || {}
-    attributes[:id] = datum[:id] if datum[:id]
+    attributes[:id] = datum[:id]&.to_s if datum[:id]
     relationships = process_relationships(included_object[:relationships] || {})
     method = datum[:method]
     method = method.to_sym if method
@@ -207,7 +207,7 @@ class JsonapiCompliable::Deserializer
     {
       meta: {
         jsonapi_type: datum[:type],
-        temp_id: temp_id,
+        temp_id: temp_id&.to_s,
         method: method
       },
       attributes: attributes,

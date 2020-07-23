@@ -52,7 +52,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
           {
             :'temp-id' => 'abc123',
             type: 'positions',
-            attributes: { title: 'specialist' }
+            attributes: { "title" => 'specialist' }
           }
         ]
       }
@@ -67,7 +67,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
               method: :create,
               jsonapi_type: 'positions'
             },
-            attributes: { title: 'specialist' },
+            attributes: { "title" => 'specialist' },
             relationships: {}
           }
         ]
@@ -81,7 +81,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
 
       it 'merges id to the relationship attributes' do
         attributes = subject[:positions][0][:attributes]
-        expect(attributes[:id]).to eq(1)
+        expect(attributes[:id]).to eq('1')
       end
     end
 
@@ -97,7 +97,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
         payload[:included] << {
           :'temp-id' => 'def456',
           type: 'departments',
-          attributes: { name: 'safety' }
+          attributes: { "name" => 'safety' }
         }
       end
 
@@ -110,7 +110,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
                 method: :create,
                 jsonapi_type: 'positions'
               },
-              attributes: { title: 'specialist' },
+              attributes: { "title" => 'specialist' },
               relationships: {
                 department: {
                   meta: {
@@ -118,7 +118,7 @@ RSpec.describe JsonapiCompliable::Deserializer do
                     temp_id: 'def456',
                     method: :create
                   },
-                  attributes: { name: 'safety' },
+                  attributes: { "name" => 'safety' },
                   relationships: {}
                 }
               }

@@ -42,6 +42,8 @@ RSpec.describe JsonapiCompliable::Scope do
       context 'when the requested sideload exists on the resource' do
         before do
           allow(resource).to receive(:sideload).with(:books) { sideload }
+          allow(query).to receive(:dup) { query }
+          allow(query).to receive(:params) { { authors: query_hash } }
         end
 
         it 'resolves the sideload' do

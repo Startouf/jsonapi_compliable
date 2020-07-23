@@ -33,6 +33,7 @@ RSpec.describe 'sideloading' do
   let(:genre_resource) do
     Class.new(ar_resource) do
       type :genres
+      allow_filter :name
     end
   end
 
@@ -125,8 +126,9 @@ RSpec.describe 'sideloading' do
 
   let!(:state)  { State.create!(name: 'maine') }
   let!(:genre)  { Genre.create!(name: 'horror') }
+  let!(:genre2)  { Genre.create!(name: 'comedy') }
   let!(:book1)  { Book.create!(title: 'The Shining', author: author, genre: genre) }
-  let!(:book2)  { Book.create!(title: 'The Stand', author: author, genre: genre) }
+  let!(:book2)  { Book.create!(title: 'The Stand', author: author, genre: genre2) }
 
   let!(:author) do
     Author.create! \
@@ -150,6 +152,17 @@ RSpec.describe 'sideloading' do
     params[:include] = 'books'
     params[:filter]  = { books: { id: book2.id } }
     expect(scope.resolve.first[:books]).to eq([book2])
+  end
+
+  it 'supports filtering nested associations' do
+    params[:include] = 'books.genre'
+    params[:filter]  = { }
+    params[:filter]  = { books: { genre: { name: 'comedy' } } }
+    author = scope.resolve.first
+    books = author[:books]
+    genres = books.map { |b| b.instance_variable_get(:@the_genre) }
+
+    expect(genres).to contain_exactly(nil, genre2)
   end
 
   it 'supports paginating associations' do
